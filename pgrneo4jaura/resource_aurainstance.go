@@ -136,7 +136,7 @@ func (r *neo4jAuraResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Description: "Neo4j Aura instance memory size.",
 				Required:    true,
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(
@@ -192,7 +192,7 @@ func (r *neo4jAuraResource) Create(ctx context.Context, req resource.CreateReque
 
 	tflog.Info(ctx, fmt.Sprintf("creating neo4j %s instance", instanceType))
 	tflog.Debug(ctx, fmt.Sprintf("instance details\n\tname: %s\n\tprovider: %s\n\tregion: %s\n\ttype: %s\n\tversion: %s\n\tmemory: %s\n\ttenant: %s\n\tpaused: %v", name, cloudProvider, region, instanceType, version, memory, tenantID, paused))
-	instance, err := neo4jCreateInstance(r.access_token, version, region, memory, name, instanceType, tenantID, cloudProvider)
+	instance, err := neo4jCreateInstance(ctx, r.access_token, version, region, memory, name, instanceType, tenantID, cloudProvider)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Neo4j Aura instance",
@@ -206,7 +206,7 @@ func (r *neo4jAuraResource) Create(ctx context.Context, req resource.CreateReque
 	instanceID := instance["data"].(map[string]interface{})["id"].(string)
 	storage := instance["data"].(map[string]interface{})["storage"].(string)
 	if paused {
-		pauseResponse, err := neo4jPauseInstance(r.access_token, instanceID, true) //wait for pause to complete
+		pauseResponse, err := neo4jPauseInstance(ctx, r.access_token, instanceID, true) //wait for pause to complete
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error Pausing Neo4j Aura instance",
@@ -251,6 +251,7 @@ func (r *neo4jAuraResource) Read(ctx context.Context, req resource.ReadRequest, 
 	state.ID = types.StringValue(instance["data"].(map[string]interface{})["id"].(string))
 	paused := instance["data"].(map[string]interface{})["status"].(string) == "paused"
 	state.Paused = types.BoolValue(paused)
+	state.Memory = types.StringValue(instance["data"].(map[string]interface{})["memory"].(string))
 	if !paused {
 		state.ConnectionURL = types.StringValue(instance["data"].(map[string]interface{})["connection_url"].(string))
 		state.Storage = types.StringValue(instance["data"].(map[string]interface{})["storage"].(string))
@@ -282,6 +283,7 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 	name := plan.Name.ValueString()
 	tflog.Info(ctx, fmt.Sprintf("updating neo4j instance %s with id %s", name, instanceID))
 
+	// renaming can be performed paused/unpaused
 	if state.Name != plan.Name {
 		tflog.Info(ctx, "renaming neo4j instance")
 		renameResponse, err := neo4jRenameInstance(r.access_token, instanceID, name)
@@ -295,10 +297,27 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 		}
 	}
 
+	// resize before pause/unpause
+	if plan.Paused.ValueBool() { //instance will be paused, resize before pause
+		if state.Memory != plan.Memory {
+			tflog.Info(ctx, "updating neo4j instance memory")
+			updateResponse, err := neo4jUpdateMemory(ctx, r.access_token, instanceID, plan.Memory.ValueString())
+			tflog.Debug(ctx, fmt.Sprintf("update response: %v", updateResponse))
+			if err != nil {
+				resp.Diagnostics.AddError(
+					"Error Updating Neo4j Aura instance",
+					"Could not update Neo4j Aura instance memory. Received error: "+err.Error(),
+				)
+				return
+			}
+		}
+	}
+
+	// pause / unpause
 	if state.Paused != plan.Paused {
 		if plan.Paused.ValueBool() {
 			tflog.Info(ctx, "pausing neo4j instance")
-			pauseResponse, err := neo4jPauseInstance(r.access_token, instanceID, true)
+			pauseResponse, err := neo4jPauseInstance(ctx, r.access_token, instanceID, true)
 			tflog.Debug(ctx, fmt.Sprintf("Pause response: %v", pauseResponse))
 			if err != nil {
 				resp.Diagnostics.AddError(
@@ -309,7 +328,7 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 			}
 		} else {
 			tflog.Info(ctx, "resuming neo4j instance")
-			resumeResponse, err := neo4jResumeInstance(r.access_token, instanceID, true)
+			resumeResponse, err := neo4jResumeInstance(ctx, r.access_token, instanceID, true)
 			tflog.Debug(ctx, fmt.Sprintf("Resume response: %v", resumeResponse))
 			if err != nil {
 				resp.Diagnostics.AddError(
@@ -321,8 +340,25 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 		}
 	}
 
+	// resize after pause/unpause
+	if !plan.Paused.ValueBool() { //instance was unpaused, resize after unpause
+		if state.Memory != plan.Memory {
+			tflog.Info(ctx, "updating neo4j instance memory")
+			updateResponse, err := neo4jUpdateMemory(ctx, r.access_token, instanceID, plan.Memory.ValueString())
+			tflog.Debug(ctx, fmt.Sprintf("update response: %v", updateResponse))
+			if err != nil {
+				resp.Diagnostics.AddError(
+					"Error Updating Neo4j Aura instance",
+					"Could not update Neo4j Aura instance memory. Received error: "+err.Error(),
+				)
+				return
+			}
+		}
+	}
+
 	state.Name = plan.Name
 	state.Paused = plan.Paused
+	state.Memory = plan.Memory
 
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -340,7 +376,7 @@ func (r *neo4jAuraResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	id := state.ID.ValueString()
-	tflog.Info(ctx, fmt.Sprintf("delting neo4j instance with id %s", id))
+	tflog.Info(ctx, fmt.Sprintf("deleting neo4j instance with id %s", id))
 	_, err := neo4jDeleteInstance(r.access_token, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
