@@ -11,18 +11,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // default return true to be safe. caller should always check for err
 func neo4jDoesInstanceExistForTenant(token string, tenant_id string, name string) (bool, error) {
 	instances, err := neo4jGetInstances(token, tenant_id)
 	if err != nil {
-		return true, err
+		return false, err
 	}
-	for _, instance := range instances["data"].([]interface{}) {
-		if name == instance.(map[string]interface{})["name"] {
+
+	// Check if the "data" key exists and is of the expected type
+	data, ok := instances["data"].([]interface{})
+	if !ok {
+		return false, fmt.Errorf("unexpected type for 'data' or 'data' key not found. are you using the correct tenant_id? %s", tenant_id)
+	}
+
+	for _, instance := range data {
+		instanceMap, ok := instance.(map[string]interface{})
+		if !ok {
+			continue // or handle the unexpected type case
+		}
+		if name == instanceMap["name"] {
 			return true, nil
 		}
 	}
@@ -72,7 +84,7 @@ func neo4jDeleteInstance(token string, instance string) (map[string]interface{},
 	}
 }
 
-func neo4jCreateInstance(token string, version string, region string, memory string, name string, instancetype string, tenantid string, cloudprovider string) (map[string]interface{}, error) {
+func neo4jCreateInstance(ctx context.Context, token string, version string, region string, memory string, name string, instancetype string, tenantid string, cloudprovider string) (map[string]interface{}, error) {
 	exists, err := neo4jDoesInstanceExistForTenant(token, tenantid, name)
 	if err != nil {
 		return nil, err
@@ -88,31 +100,12 @@ func neo4jCreateInstance(token string, version string, region string, memory str
 	defer r.Body.Close()
 	if r.StatusCode >= 200 && r.StatusCode < 300 {
 		resp, err := responseToMap(r)
+		instance := resp["data"].(map[string]interface{})["id"].(string)
+		resp, err = neo4jWaitForActionToComplete(ctx, token, instance, "create")
 		if err != nil {
 			return nil, err
 		}
-		// WAIT FOR INSTANCE TO FINISH CREATING
-		tries := 0
-		for ok := true; ok; {
-			instance, err := neo4jGetInstance(token, resp["data"].(map[string]interface{})["id"].(string))
-			if err != nil {
-				return nil, err
-			}
-			tries = tries + 1
-			status := instance["data"].(map[string]interface{})["status"].(string)
-			if status != "running" {
-				// if status == "failed" {
-				// 	return fmt.Errorf("TODO some failed message. cant reproduce failed status")
-				// }
-				time.Sleep(5 * time.Second)
-				if tries >= 240 {
-					return nil, fmt.Errorf("exceeded max amount of time waiting for neo4j aura instance to finish creating/building")
-				}
-			} else {
-				return instance, nil
-			}
-		}
-		// END WAIT FOR INSTANCE TO FINISH CREATING
+		return resp, err
 	} else if r.StatusCode == http.StatusConflict || r.StatusCode == http.StatusBadRequest {
 		message, err := getResponseErrorMessage(r)
 		if err != nil {
@@ -123,60 +116,71 @@ func neo4jCreateInstance(token string, version string, region string, memory str
 	return nil, fmt.Errorf("check neo4jCreateInstance implementation. http %d", r.StatusCode)
 }
 
-func neo4jResumeInstance(token string, instance string, wait bool) (map[string]interface{}, error) {
+func neo4jResumeInstance(ctx context.Context, token string, instance string, wait bool) (map[string]interface{}, error) {
 	if wait {
-		return neo4jInstanceActionWithWait(token, instance, "resume")
+		return neo4jInstanceActionWithWait(ctx, token, instance, "resume")
 	} else {
-		resp, _, err := neo4jInstanceAction(token, instance, "resume")
-		return resp, err
+		return neo4jInstanceAction(token, instance, "resume")
 	}
 }
 
-func neo4jPauseInstance(token string, instance string, wait bool) (map[string]interface{}, error) {
+func neo4jPauseInstance(ctx context.Context, token string, instance string, wait bool) (map[string]interface{}, error) {
 	if wait {
-		return neo4jInstanceActionWithWait(token, instance, "pause")
+		return neo4jInstanceActionWithWait(ctx, token, instance, "pause")
 	} else {
-		resp, _, err := neo4jInstanceAction(token, instance, "pause")
-		return resp, err
+		return neo4jInstanceAction(token, instance, "pause")
 	}
 }
 
-func neo4jInstanceActionWithWait(token string, instance string, action string) (map[string]interface{}, error) {
+func neo4jInstanceActionWithWait(ctx context.Context, token string, instance string, action string) (map[string]interface{}, error) {
+	tflog.Info(ctx, fmt.Sprintf("running neo4jInstanceActionWithWait with action %s on instance %s.", action, instance))
 	if action != "pause" && action != "resume" {
 		return nil, nil
 	}
-	resp, ismsgerr, err := neo4jInstanceAction(token, instance, action)
+	resp, err := neo4jInstanceAction(token, instance, action)
+	if err != nil {
+		return nil, err
+	}
+	resp, err = neo4jWaitForActionToComplete(ctx, token, instance, action)
+	return resp, err
+}
+
+func neo4jWaitForActionToComplete(ctx context.Context, token string, instance string, action string) (map[string]interface{}, error) {
 	tries := 0
 	sleepSecInterval := 5
 	timeoutMin := 30
+
 	for ok := true; ok; {
-		if err != nil && !ismsgerr {
+		resp, err := neo4jGetInstance(token, instance)
+		if err != nil {
 			return nil, err
-		} else if err != nil && ismsgerr {
-			if strings.Contains(err.Error(), "is not running") && action == "pause" {
-				return resp, nil
-			}
-			if strings.Contains(err.Error(), "is not paused") && action == "resume" {
-				return resp, nil
-			}
 		}
+		tflog.Debug(ctx, fmt.Sprintf("get instance response %v.", resp))
+		status := resp["data"].(map[string]interface{})["status"].(string)
 		checkaction := action[:len(action)-1] + "ing"
-		takingAction := true
+		takingAction := false
 		if action == "pause" {
-			takingAction = resp["data"].(map[string]interface{})["status"] == "pausing"
-		} else {
-			takingAction = resp["data"].(map[string]interface{})["status"] == "resuming"
+			takingAction = status == "pausing"
+		} else if action == "resume" {
+			takingAction = status == "resuming" || status == "restoring"
+		} else if action == "create" {
+			takingAction = status == "creating"
+		} else if action == "update" {
+			takingAction = status == "updating" || status == "resizing"
+		} else if action == "run" {
+			takingAction = status == "running"
 		}
-		if takingAction {
-			tries = tries + 1
-			time.Sleep(time.Duration(sleepSecInterval) * time.Second)
-			if tries >= (60/sleepSecInterval)*timeoutMin { // 20 minutes
-				return nil, fmt.Errorf("exceeded max number of tries for successfully %s instance %s", checkaction, instance)
-			}
-			resp, ismsgerr, err = neo4jInstanceAction(token, instance, action)
+		if !takingAction {
+			return resp, err
+		}
+		tries = tries + 1
+		time.Sleep(time.Duration(sleepSecInterval) * time.Second)
+		if tries >= (60/sleepSecInterval)*timeoutMin { // 20 minutes
+			return nil, fmt.Errorf("exceeded max number of tries for successfully %s instance %s", checkaction, instance)
 		}
 	}
-	return resp, err
+
+	return nil, nil
 }
 
 /*
@@ -189,34 +193,23 @@ return values:
     the error message will indiciate the instance status. if #2 is false and an error is returned then the error
     is unexpected.
 */
-func neo4jInstanceAction(token string, instance string, action string) (map[string]interface{}, bool, error) {
+func neo4jInstanceAction(token string, instance string, action string) (map[string]interface{}, error) {
 	r, err := neo4jAuraHTTPRequest(token, "POST", "https://api.neo4j.io/v1/instances/"+instance+"/"+action, "")
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	defer r.Body.Close()
 	if r.StatusCode == http.StatusOK || r.StatusCode == http.StatusAccepted { // have seen both during pause/resume
 		resp, err := responseToMap(r)
-		return resp, false, err
+		return resp, err
 	} else if r.StatusCode == http.StatusConflict || r.StatusCode == http.StatusBadRequest {
-		resp, err := responseToMap(r)
+		message, err := getResponseErrorMessage(r)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
-		instancedata := resp["errors"].([]interface{})
-		checkaction := action[:len(action)-1] + "ing"
-		message := instancedata[0].(map[string]interface{})["message"]
-		instance, err := neo4jGetInstance(token, instance)
-		if err != nil {
-			return nil, false, err
-		}
-		if message == ("The database is currently undergoing an operation: " + checkaction) {
-			return instance, false, err
-		} else {
-			return instance, true, fmt.Errorf("%s", message)
-		}
+		return nil, fmt.Errorf("%s", message)
 	}
-	return nil, false, fmt.Errorf("check neo4jInstanceAction implementation. http %d", r.StatusCode)
+	return nil, fmt.Errorf("check neo4jInstanceAction implementation. http %d", r.StatusCode)
 }
 
 func getResponseErrorMessage(r *http.Response) (string, error) {
@@ -327,4 +320,21 @@ func neo4jRenameInstance(token string, instance string, name string) (map[string
 		return resp, err
 	}
 	return nil, fmt.Errorf("error renaming instance %d", r.StatusCode)
+}
+
+func neo4jUpdateMemory(ctx context.Context, token string, instance string, memory string) (map[string]interface{}, error) {
+	payload := `{"memory": "` + memory + `"}`
+	r, err := neo4jAuraHTTPRequest(token, "PATCH", "https://api.neo4j.io/v1/instances/"+instance, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Body.Close()
+	if r.StatusCode == http.StatusOK || r.StatusCode == http.StatusAccepted {
+		_, err := neo4jWaitForActionToComplete(ctx, token, instance, "run") //wait for instance status to change from running to updating
+		if err != nil {
+			return nil, err
+		}
+		return neo4jWaitForActionToComplete(ctx, token, instance, "update") //wait for updating and resizing status to transition to running
+	}
+	return nil, fmt.Errorf("error updating memory for instance %s, got http %d", instance, r.StatusCode)
 }
