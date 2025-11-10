@@ -15,10 +15,6 @@ type notEmptyStateCheck struct {
 	attributePath   tfjsonpath.Path
 }
 
-// func (n notEmptyStateCheck) CheckState(ctx context.Context, req statecheck.CheckStateRequest, resp *statecheck.CheckStateResponse) {
-// 	return;
-// }
-
 func (n notEmptyStateCheck) CheckState(ctx context.Context, req statecheck.CheckStateRequest, resp *statecheck.CheckStateResponse) {
 	var resource *tfjson.StateResource
 

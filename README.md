@@ -22,8 +22,6 @@ $ # test project configurations data lookup
 $ go test -timeout 99999s -run '^TestAccPGRNeo4jAuraProjectConfigurations$' -v ./...
 ```
 
-
-
 ## Build provider
 
 Run the following command to build and deploy the provider to your workstation. 
