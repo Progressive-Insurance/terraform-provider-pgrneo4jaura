@@ -6,6 +6,12 @@ resource "pgrneo4jaura_aurainstance" "aura" {
   version = "5"
   cloud_provider = "aws"
   region = "us-east-1"
-  paused = false
   memory = "4GB"
+  paused = false
+  n4jusr = true
+  customer_managed_key_id = "<OPTIONAL CMK ID>"
+  vector_optimized = true
+  graph_analytics_plugin = false
+  secondary_count = 0
 }
+

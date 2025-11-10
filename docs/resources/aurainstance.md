@@ -21,8 +21,13 @@ resource "pgrneo4jaura_aurainstance" "aura" {
   version = "5"
   cloud_provider = "aws"
   region = "us-east-1"
-  paused = false
   memory = "4GB"
+  paused = false
+  n4jusr = true
+  customer_managed_key_id = "<OPTIONAL CMK ID>"
+  vector_optimized = true
+  graph_analytics_plugin = false
+  secondary_count = 0
 }
 ```
 
@@ -41,10 +46,17 @@ resource "pgrneo4jaura_aurainstance" "aura" {
 
 ### Optional
 
+- `customer_managed_key_id` (String) Neo4j Aura Customer Managed Key (CMK).
+- `graph_analytics_plugin` (Boolean) An optional graph analytics plugin configuration to be set during instance creation.
+- `n4jusr` (Boolean) Controls retrieval of default neo4j user password upon creation.
 - `paused` (Boolean) Neo4j instances running state.
+- `secondary_count` (Number) Number of secondary Neo4j Aura instances.
+- `vector_optimized` (Boolean) An optional vector optimization configuration to be set during instance creation.
 
 ### Read-Only
 
 - `connection_url` (String) Neo4j Aura connection url.
 - `id` (String) identifier for resource.
+- `metrics_integration_url` (String) Neo4j Aura instance metrics url.
+- `n4jpwd` (String, Sensitive) Default neo4j user password.
 - `storage` (String) Neo4j Aura instance storage. The amount of storage depends on the amount of memory allocated for your instance.

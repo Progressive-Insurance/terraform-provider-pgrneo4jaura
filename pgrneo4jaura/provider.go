@@ -12,9 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var (
-	_ provider.Provider = &pgrneo4jaura_provider{}
-)
+var _ provider.Provider = &pgrneo4jaura_provider{}
 
 func New() provider.Provider {
 	return &pgrneo4jaura_provider{}
@@ -40,11 +38,11 @@ func (p *pgrneo4jaura_provider) Schema(_ context.Context, _ provider.SchemaReque
 		Description: "Progressive Neo4j Aura Provider",
 		Attributes: map[string]schema.Attribute{
 			"client_id": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Progressive Neo4j Aura API client id.",
 			},
 			"client_secret": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Sensitive:   true,
 				Description: "Progressive Neo4j Aura API client secret.",
 			},
@@ -127,14 +125,19 @@ func (p *pgrneo4jaura_provider) Configure(ctx context.Context, req provider.Conf
 
 	data.access_token = access_token
 	resp.ResourceData = data
+	resp.DataSourceData = data
 }
 
 func (p *pgrneo4jaura_provider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		NewAuraSizingEstimateDataSource,
+		NewAuraProjectsDataSource,
+	}
 }
 
 func (p *pgrneo4jaura_provider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewAuraInstanceResource,
+		NewAuraCMKResource,
 	}
 }
