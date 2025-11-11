@@ -3,7 +3,7 @@ HOSTNAME=registry.terraform.io
 NAMESPACE=progressive
 NAME=pgrneo4jaura
 BINARY=terraform-provider-${NAME}
-VERSION=1.0.0
+VERSION=1.1.0
 
 default: build
 
@@ -20,12 +20,12 @@ build:
 	GOOS=linux GOARCH=arm64 go build -o ${BINARY}
 	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/linux_arm64
 	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/linux_arm64
-	GOOS=windows GOARCH=amd64 go build -o ${BINARY}
+	GOOS=windows GOARCH=amd64 go build -o ${BINARY}.exe
 	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_amd64
-	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_amd64
-	GOOS=windows GOARCH=arm64 go build -o ${BINARY}
+	mv ${BINARY}.exe ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_amd64
+	GOOS=windows GOARCH=arm64 go build -o ${BINARY}.exe
 	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_arm64
-	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_arm64
+	mv ${BINARY}.exe ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/windows_arm64
 	GOOS=freebsd GOARCH=amd64 go build -o ${BINARY}
 	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/freebsd_amd64
 	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/freebsd_amd64

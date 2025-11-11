@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -34,17 +35,24 @@ type neo4jAuraResource struct {
 }
 
 type neo4jAuraResourceModel struct {
-	ID            types.String `tfsdk:"id"`
-	ConnectionURL types.String `tfsdk:"connection_url"`
-	Version       types.String `tfsdk:"version"`
-	Region        types.String `tfsdk:"region"`
-	Memory        types.String `tfsdk:"memory"`
-	InstanceType  types.String `tfsdk:"type"`
-	TenantID      types.String `tfsdk:"tenant_id"`
-	CloudProvider types.String `tfsdk:"cloud_provider"`
-	Name          types.String `tfsdk:"name"`
-	Storage       types.String `tfsdk:"storage"`
-	Paused        types.Bool   `tfsdk:"paused"`
+	ID              types.String `tfsdk:"id"`
+	ConnectionURL   types.String `tfsdk:"connection_url"`
+	Version         types.String `tfsdk:"version"`
+	Region          types.String `tfsdk:"region"`
+	Memory          types.String `tfsdk:"memory"`
+	InstanceType    types.String `tfsdk:"type"`
+	TenantID        types.String `tfsdk:"tenant_id"`
+	CloudProvider   types.String `tfsdk:"cloud_provider"`
+	Name            types.String `tfsdk:"name"`
+	Storage         types.String `tfsdk:"storage"`
+	Paused          types.Bool   `tfsdk:"paused"`
+	NeoUser         types.Bool   `tfsdk:"n4jusr"`
+	NeoPwd          types.String `tfsdk:"n4jpwd"`
+	CMK             types.String `tfsdk:"customer_managed_key_id"`
+	VectorOptimized types.Bool   `tfsdk:"vector_optimized"`
+	GDSPlugin       types.Bool   `tfsdk:"graph_analytics_plugin"`
+	MetricsURL      types.String `tfsdk:"metrics_integration_url"`
+	Secondaries     types.Int64  `tfsdk:"secondary_count"`
 }
 
 // tenant_id,storage,cloud_provider,type,version,name,region,memory,
@@ -76,13 +84,6 @@ func (r *neo4jAuraResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 						regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`),
 						"must be a valid tenant id",
 					),
-				},
-			},
-			"storage": schema.StringAttribute{
-				Description: "Neo4j Aura instance storage. The amount of storage depends on the amount of memory allocated for your instance.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"cloud_provider": schema.StringAttribute{
@@ -145,13 +146,6 @@ func (r *neo4jAuraResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 					),
 				},
 			},
-			"connection_url": schema.StringAttribute{
-				Description: "Neo4j Aura connection url.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
 			"paused": schema.BoolAttribute{
 				Description: "Neo4j instances running state.",
 				Optional:    true,
@@ -159,6 +153,77 @@ func (r *neo4jAuraResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Default:     booldefault.StaticBool(false),
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"secondary_count": schema.Int64Attribute{
+				Description: "Number of secondary Neo4j Aura instances.",
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(0),
+			},
+			"customer_managed_key_id": schema.StringAttribute{
+				Description: "Neo4j Aura Customer Managed Key (CMK).",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"vector_optimized": schema.BoolAttribute{
+				Description: "An optional vector optimization configuration to be set during instance creation.",
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"graph_analytics_plugin": schema.BoolAttribute{
+				Description: "An optional graph analytics plugin configuration to be set during instance creation.",
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"n4jusr": schema.BoolAttribute{
+				Description: "Controls retrieval of default neo4j user password upon creation.",
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
+			},
+			//computed, no default (retrieved after create)
+			//check auraprojects list for available memory/storage pairs. the resource takes memory value and computes storage value
+			"connection_url": schema.StringAttribute{
+				Description: "Neo4j Aura connection url.",
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"storage": schema.StringAttribute{
+				Description: "Neo4j Aura instance storage. The amount of storage depends on the amount of memory allocated for your instance.",
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"n4jpwd": schema.StringAttribute{
+				Description: "Default neo4j user password.",
+				Computed:    true,
+				Sensitive:   true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"metrics_integration_url": schema.StringAttribute{
+				Description: "Neo4j Aura instance metrics url.",
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 		},
@@ -189,10 +254,14 @@ func (r *neo4jAuraResource) Create(ctx context.Context, req resource.CreateReque
 	cloudProvider := plan.CloudProvider.ValueString()
 	name := plan.Name.ValueString()
 	paused := plan.Paused.ValueBool()
+	n4jusr := plan.NeoUser.ValueBool()
+	cmk := plan.CMK.ValueString()
+	vectorOptimized := plan.VectorOptimized.ValueBool()
+	gdsPluginIncluded := plan.GDSPlugin.ValueBool()
+	secondaryCount := plan.Secondaries.ValueInt64()
 
 	tflog.Info(ctx, fmt.Sprintf("creating neo4j %s instance", instanceType))
-	tflog.Debug(ctx, fmt.Sprintf("instance details\n\tname: %s\n\tprovider: %s\n\tregion: %s\n\ttype: %s\n\tversion: %s\n\tmemory: %s\n\ttenant: %s\n\tpaused: %v", name, cloudProvider, region, instanceType, version, memory, tenantID, paused))
-	instance, err := neo4jCreateInstance(ctx, r.access_token, version, region, memory, name, instanceType, tenantID, cloudProvider)
+	instance, err := neo4jCreateInstance(ctx, r.access_token, version, region, memory, name, instanceType, tenantID, cloudProvider, cmk, vectorOptimized, gdsPluginIncluded)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Neo4j Aura instance",
@@ -216,10 +285,28 @@ func (r *neo4jAuraResource) Create(ctx context.Context, req resource.CreateReque
 		}
 		tflog.Debug(ctx, fmt.Sprintf("pause respose: %v", pauseResponse))
 	}
+	if secondaryCount > 0 {
+		updateSecondariesResponse, statusCode, err := neo4jUpdateSecondariesCount(ctx, r.access_token, instanceID, secondaryCount)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Secondaries Count",
+				"Could not update secondaries count for Neo4j Aura instance. Received error: "+err.Error(),
+			)
+			return
+		}
+		tflog.Debug(ctx, fmt.Sprintf("update secondaries respose(%d): %v", statusCode, updateSecondariesResponse))
+	}
 
 	plan.ID = types.StringValue(instance["data"].(map[string]interface{})["id"].(string))
 	plan.ConnectionURL = types.StringValue(instance["data"].(map[string]interface{})["connection_url"].(string))
+	plan.MetricsURL = types.StringValue(instance["data"].(map[string]interface{})["metrics_integration_url"].(string))
+	if n4jusr {
+		plan.NeoPwd = types.StringValue(instance["data"].(map[string]interface{})["n4jpwd"].(string))
+	} else {
+		plan.NeoPwd = types.StringValue("N/A")
+	}
 	plan.Storage = types.StringValue(storage)
+	plan.CMK = types.StringValue(cmk)
 
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
@@ -237,9 +324,10 @@ func (r *neo4jAuraResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 
 	id := state.ID.ValueString()
-	instance, err := neo4jGetInstance(r.access_token, id)
+
+	instance, statusCode, err := neo4jGetInstance(r.access_token, id)
 	tflog.Info(ctx, "reading neo4j instance")
-	tflog.Debug(ctx, "instance details: %v", instance)
+	tflog.Debug(ctx, fmt.Sprintf("instance details (http: %d): %v", statusCode, instance))
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Neo4j Aura instance",
@@ -250,8 +338,12 @@ func (r *neo4jAuraResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 	state.ID = types.StringValue(instance["data"].(map[string]interface{})["id"].(string))
 	paused := instance["data"].(map[string]interface{})["status"].(string) == "paused"
+	state.Secondaries = types.Int64Value(instance["data"].(map[string]interface{})["secondaries_count"].(int64))
 	state.Paused = types.BoolValue(paused)
 	state.Memory = types.StringValue(instance["data"].(map[string]interface{})["memory"].(string))
+	state.VectorOptimized = types.BoolValue(instance["data"].(map[string]interface{})["vector_optimized"].(bool))
+	state.GDSPlugin = types.BoolValue(instance["data"].(map[string]interface{})["graph_analytics_plugin"].(bool))
+	state.MetricsURL = types.StringValue(instance["data"].(map[string]interface{})["metrics_integration_url"].(string))
 	if !paused {
 		state.ConnectionURL = types.StringValue(instance["data"].(map[string]interface{})["connection_url"].(string))
 		state.Storage = types.StringValue(instance["data"].(map[string]interface{})["storage"].(string))
@@ -262,6 +354,89 @@ func (r *neo4jAuraResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+}
+
+func doSerializedUpdates(ctx context.Context, token string, instanceID string, state neo4jAuraResourceModel, plan neo4jAuraResourceModel, resp *resource.UpdateResponse) (map[string]bool, error) {
+	updates := map[string]bool{
+		"memory":                 false,
+		"vector_optimized":       false,
+		"graph_analytics_plugin": false,
+		"secondaries_count":      false,
+	}
+
+	//decrease secondary instances to do modifications to less instances
+	if state.Secondaries.ValueInt64() > plan.Secondaries.ValueInt64() {
+		tflog.Info(ctx, "decreasing neo4j instance secondaries_count")
+		updateResponse, statusCode, err := neo4jUpdateSecondariesCount(ctx, token, instanceID, plan.Secondaries.ValueInt64())
+		tflog.Debug(ctx, fmt.Sprintf("Update secondaries_count response (%d): %v", statusCode, updateResponse))
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance secondaries_count",
+				"Could not update Neo4j Aura instance secondaries_count. Received error: "+err.Error(),
+			)
+			return nil, err
+		}
+		updates["secondaries_count"] = true
+	}
+
+	if state.Memory != plan.Memory {
+		tflog.Info(ctx, "updating neo4j instance memory")
+		updateResponse, statusCode, err := neo4jUpdateMemory(ctx, token, instanceID, plan.Memory.ValueString())
+		tflog.Debug(ctx, fmt.Sprintf("update response(%d): %v", statusCode, updateResponse))
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance",
+				"Could not update Neo4j Aura instance memory. Received error: "+err.Error(),
+			)
+			return nil, err
+		}
+		updates["memory"] = true
+	}
+
+	if state.VectorOptimized != plan.VectorOptimized {
+		tflog.Info(ctx, "updating neo4j instance vector optimzation")
+		updateResponse, statusCode, err := neo4jUpdateVectorOptimization(ctx, token, instanceID, plan.VectorOptimized.ValueBool())
+		tflog.Debug(ctx, fmt.Sprintf("Update vector optimzation response (%d): %v", statusCode, updateResponse))
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance vector optimization",
+				"Could not update Neo4j Aura instance vector optimization. Received error: "+err.Error(),
+			)
+			return nil, err
+		}
+		updates["vector_optimized"] = true
+	}
+
+	if state.GDSPlugin != plan.GDSPlugin {
+		tflog.Info(ctx, "updating neo4j instance graph_analytics_plugin")
+		updateResponse, statusCode, err := neo4jUpdateIncludeGraphPlugin(ctx, token, instanceID, plan.GDSPlugin.ValueBool())
+		tflog.Debug(ctx, fmt.Sprintf("Update graph_analytics_plugin response (%d): %v", statusCode, updateResponse))
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance graph_analytics_plugin",
+				"Could not update Neo4j Aura instance graph_analytics_plugin. Received error: "+err.Error(),
+			)
+			return nil, err
+		}
+		updates["graph_analytics_plugin"] = true
+	}
+
+	//increase secondary instances after modifications
+	if state.Secondaries.ValueInt64() < plan.Secondaries.ValueInt64() {
+		tflog.Info(ctx, "increasing neo4j instance secondaries_count")
+		updateResponse, statusCode, err := neo4jUpdateSecondariesCount(ctx, token, instanceID, plan.Secondaries.ValueInt64())
+		tflog.Debug(ctx, fmt.Sprintf("Update secondaries_count response (%d): %v", statusCode, updateResponse))
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance secondaries_count",
+				"Could not update Neo4j Aura instance secondaries_count. Received error: "+err.Error(),
+			)
+			return nil, err
+		}
+		updates["secondaries_count"] = true
+	}
+
+	return updates, nil
 }
 
 func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -297,19 +472,21 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 		}
 	}
 
-	// resize before pause/unpause
-	if plan.Paused.ValueBool() { //instance will be paused, resize before pause
-		if state.Memory != plan.Memory {
-			tflog.Info(ctx, "updating neo4j instance memory")
-			updateResponse, err := neo4jUpdateMemory(ctx, r.access_token, instanceID, plan.Memory.ValueString())
-			tflog.Debug(ctx, fmt.Sprintf("update response: %v", updateResponse))
-			if err != nil {
-				resp.Diagnostics.AddError(
-					"Error Updating Neo4j Aura instance",
-					"Could not update Neo4j Aura instance memory. Received error: "+err.Error(),
-				)
-				return
-			}
+	// adjust before pause
+	if plan.Paused.ValueBool() { //instance will be paused
+		// updateResponse, err := doCombinedUpdates(ctx, r.access_token, instanceID, state, plan, resp)
+		updates, err := doSerializedUpdates(ctx, r.access_token, instanceID, state, plan, resp)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance",
+				"Could not perform updates to Neo4j Aura instance. Received error: "+err.Error(),
+			)
+			return
+		}
+		if updates["memory"] || updates["vector_optimized"] || updates["graph_analytics_plugin"] || updates["secondaries_count"] { //if updateResponse != nil { when combinedupates
+			tflog.Info(ctx, fmt.Sprintf("update objects: %v", updates))
+		} else {
+			tflog.Info(ctx, "no updates to make before pause")
 		}
 	}
 
@@ -340,25 +517,30 @@ func (r *neo4jAuraResource) Update(ctx context.Context, req resource.UpdateReque
 		}
 	}
 
-	// resize after pause/unpause
-	if !plan.Paused.ValueBool() { //instance was unpaused, resize after unpause
-		if state.Memory != plan.Memory {
-			tflog.Info(ctx, "updating neo4j instance memory")
-			updateResponse, err := neo4jUpdateMemory(ctx, r.access_token, instanceID, plan.Memory.ValueString())
-			tflog.Debug(ctx, fmt.Sprintf("update response: %v", updateResponse))
-			if err != nil {
-				resp.Diagnostics.AddError(
-					"Error Updating Neo4j Aura instance",
-					"Could not update Neo4j Aura instance memory. Received error: "+err.Error(),
-				)
-				return
-			}
+	// adjust after unpause/resume
+	if !plan.Paused.ValueBool() { //instance was unpaused/resumed
+		// updateResponse, err := doCombinedUpdates(ctx, r.access_token, instanceID, state, plan, resp)
+		updates, err := doSerializedUpdates(ctx, r.access_token, instanceID, state, plan, resp)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating Neo4j Aura instance",
+				"Could not perform updates to Neo4j Aura instance. Received error: "+err.Error(),
+			)
+			return
+		}
+		if updates["memory"] || updates["vector_optimized"] || updates["graph_analytics_plugin"] || updates["secondaries_count"] { //if updateResponse != nil { when combinedupates
+			tflog.Info(ctx, fmt.Sprintf("update objects: %v", updates))
+		} else {
+			tflog.Info(ctx, "no updates to make before pause")
 		}
 	}
 
 	state.Name = plan.Name
 	state.Paused = plan.Paused
 	state.Memory = plan.Memory
+	state.VectorOptimized = plan.VectorOptimized
+	state.GDSPlugin = plan.GDSPlugin
+	state.Secondaries = plan.Secondaries
 
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -377,7 +559,7 @@ func (r *neo4jAuraResource) Delete(ctx context.Context, req resource.DeleteReque
 
 	id := state.ID.ValueString()
 	tflog.Info(ctx, fmt.Sprintf("deleting neo4j instance with id %s", id))
-	_, err := neo4jDeleteInstance(r.access_token, id)
+	_, err := neo4jDeleteInstance(ctx, r.access_token, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Deleting Neo4j Aura instance",
@@ -393,22 +575,24 @@ func (r *neo4jAuraResource) Delete(ctx context.Context, req resource.DeleteReque
 //   - the endpoint could also be updated to reflect the instances version so its 1 less input for the import
 //     ie. terraform import resource_type.resource_name <aura_instance_id> (* DOESNT WORK WITHOUT VERSION)
 //
-// terraform import pgrneo4jaura_aurainstance.myinstance <INSTANCE ID>,<INSTANCE VERSION>(,<INSTANCE MEMORY>)
+// terraform import pgrneo4jaura_aurainstance.myinstance <INSTANCE ID>,<INSTANCE VERSION>,<INCL N4J USR>,(,<N4J USR PWD>)(,<INSTANCE MEMORY>)
 func (r *neo4jAuraResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	importParts := strings.Split(req.ID, ",")
-	if len(importParts) < 2 || len(importParts) > 3 {
+	if len(importParts) < 3 || len(importParts) > 5 {
 		resp.Diagnostics.AddError(
 			"Error Importing Neo4j Aura instance",
-			"Could not import Neo4j Aura instance.\nPlease ensure you run \"terraform import resource_type.resource_name <aura_instance_id>,<instance_version>(,<instance_memory>)",
+			"Could not import Neo4j Aura instance.\nPlease ensure you run \"terraform import resource_type.resource_name <aura_instance_id>,<instance_version>,<include_neo4j_user>,(,<neo4j_user_pwd>)(,<instance_memory>)",
 		)
 		return
 	}
 
 	id := importParts[0]
 	version := importParts[1]
+	n4jUserIncl := importParts[2]
+
 	tflog.Info(ctx, "importing neo4j instance")
-	instance, err := neo4jGetInstance(r.access_token, id)
-	tflog.Debug(ctx, "instance details: %v", instance)
+	instance, statusCode, err := neo4jGetInstance(r.access_token, id)
+	tflog.Debug(ctx, fmt.Sprintf("instance details (http: %d): %v", statusCode, instance))
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -416,6 +600,12 @@ func (r *neo4jAuraResource) ImportState(ctx context.Context, req resource.Import
 			"Could not import Neo4j Aura instance "+id+". Received error: "+err.Error(),
 		)
 		return
+	}
+
+	n4jusr := types.BoolValue(n4jUserIncl == "true")
+	n4jpwd := "N/A"
+	if n4jUserIncl == "true" {
+		n4jpwd = importParts[3]
 	}
 
 	connection_url := "" //null connection_url in paused instances
@@ -426,14 +616,14 @@ func (r *neo4jAuraResource) ImportState(ctx context.Context, req resource.Import
 		memory = instance["data"].(map[string]interface{})["memory"].(string)                 //missing in paused instances
 		storage = instance["data"].(map[string]interface{})["storage"].(string)               //missing in paused instances
 	} else {
-		if len(importParts) != 3 {
+		if len(importParts) != 5 {
 			resp.Diagnostics.AddError(
 				"Error Importing Neo4j Aura instance",
-				"Could not import Neo4j Aura instance.\nPlease ensure you run:\n  terraform import resource_type.resource_name <aura_dbid>,<aura_version>(,<memory>,<storage>)\nIf instance is paused for import you must also specify the memory and storage in GB.",
+				"Could not import Neo4j Aura instance.\nPlease ensure you run:\n  terraform import resource_type.resource_name <aura_instance_id>,<instance_version>,<include_neo4j_user>,(,<neo4j_user_pwd>)(,<instance_memory>)\nIf instance is paused for import you must also specify the memory in GB.",
 			)
 			return
 		}
-		memory = importParts[2]
+		memory = importParts[4]
 	}
 	cloud_provider := instance["data"].(map[string]interface{})["cloud_provider"].(string)
 	name := instance["data"].(map[string]interface{})["name"].(string)
@@ -441,9 +631,24 @@ func (r *neo4jAuraResource) ImportState(ctx context.Context, req resource.Import
 	tenant_id := instance["data"].(map[string]interface{})["tenant_id"].(string)
 	instanceType := instance["data"].(map[string]interface{})["type"].(string)
 
+	secondaries := types.Int64Value(instance["data"].(map[string]interface{})["secondaries_count"].(int64))
+	vectorOptimized := types.BoolValue(instance["data"].(map[string]interface{})["vector_optimized"].(bool))
+	gdsPlugin := types.BoolValue(instance["data"].(map[string]interface{})["graph_analytics_plugin"].(bool))
+	metricsUrl := types.StringValue(instance["data"].(map[string]interface{})["metrics_integration_url"].(string))
+	cmk := types.StringValue(instance["data"].(map[string]interface{})["customer_managed_key_id"].(string))
+
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), id)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("connection_url"), connection_url)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("cloud_provider"), cloud_provider)...)
+
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("customer_managed_key_id"), cmk)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("vector_optimized"), vectorOptimized)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("secondary_count"), secondaries)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("graph_analytics_plugin"), gdsPlugin)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("metrics_integration_url"), metricsUrl)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("n4jusr"), n4jusr)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("n4jpwd"), n4jpwd)...)
+
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("memory"), memory)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), name)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("region"), region)...)

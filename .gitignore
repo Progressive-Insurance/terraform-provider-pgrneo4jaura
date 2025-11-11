@@ -2,6 +2,8 @@
 terraform-provider-pgrneo4jaura
 bin
 vendor
+pgrneo4jaura/tflog
+README.md.local
 
 # Local .terraform directories
 **/.terraform/*

@@ -6,15 +6,12 @@ import (
 )
 
 const (
-	providerConfig = `provider "pgrneo4jaura" {
-  client_id = "<YOUR CLIENT ID>"
-  client_secret = "<YOUR CLIENT SECRET>"
+	providerConfig = `
+provider "pgrneo4jaura" {
 }
 `
 )
 
-var (
-	testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-		"pgrneo4jaura": providerserver.NewProtocol6WithError(New()),
-	}
-)
+var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
+	"pgrneo4jaura": providerserver.NewProtocol6WithError(New()),
+}

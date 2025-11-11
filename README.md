@@ -3,12 +3,23 @@
 ## Run provider tests
 
 ```shell
-$ cd /path/to/terraform-provider-pgrneo4jaura
-$ TF_ACC=1 TF_LOG=DEBUG go test -v ./...
-$ TF_ACC=1 TF_LOG=DEBUG go test -timeout 99999s -v ./...
+export TF_ACC=1
+export TF_LOG=DEBUG
+export TF_LOG_PATH=tflog
+export PGRNEO4J_CLIENTID=***
+export PGRNEO4J_CLIENTSECERET=***
+cd /path/to/terraform-provider-pgrneo4jaura
+$ # test all
+$ go test -timeout 99999s -v ./...
 
-$ # for a specific test only (example using TestAccPGRNeo4jInstance)
-$ TF_ACC=1 TF_LOG=DEBUG TF_LOG_PATH=tflog go test -timeout 99999s -run '^TestAccPGRNeo4jInstance$' -v ./...
+$ # test sizing data lookup
+$ go test -timeout 99999s -run '^TestAccPGRNeo4jAuraSizing$' -v ./...
+$ # test instance resource
+$ go test -timeout 99999s -run '^TestAccPGRNeo4jInstance$' -v ./...
+$ # test cmk resource
+$ go test -timeout 99999s -run '^TestAccPGRNeo4jCMK$' -v ./...
+$ # test project configurations data lookup
+$ go test -timeout 99999s -run '^TestAccPGRNeo4jAuraProjectConfigurations$' -v ./...
 ```
 
 ## Build provider
